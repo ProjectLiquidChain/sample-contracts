@@ -1,18 +1,8 @@
-#include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
+#include <vertex.h>
 
-typedef uint8_t byte_t;
-typedef uint8_t* address;
-
-extern size_t chain_storage_size_get(byte_t*, size_t);
-extern byte_t* chain_storage_get(byte_t*, size_t, byte_t*);
-extern void chain_storage_set(byte_t*, size_t, byte_t*, size_t);
-extern void chain_print_bytes(byte_t*, size_t);
-extern void chain_event_emit(byte_t*);
-extern void chain_get_caller(byte_t*);
-extern void chain_get_creator(byte_t*);
-extern byte_t* chain_invoke(byte_t*, byte_t* params);
+extern Event Mint(address to, uint64_t amount);
+extern Event Transfer(address from, address to, uint64_t amount);
 
 const int ADDR_SIZE=35;
 const char OWNER[] = "OWNER";
@@ -132,10 +122,17 @@ int mint(uint64_t amount) {
     free(owner);
   }
 
+  if (!caller_is_owner()) {
+    return -1;
+  }
+
   // minting
   address caller = (address) malloc(ADDR_SIZE * sizeof(byte_t));
   chain_get_caller(caller);
   int success = change_balance(caller, amount, 1);
+  if (success != -1) {
+    Mint(caller, amount);
+  }
   free(caller);
   return success;
 }
@@ -152,7 +149,11 @@ int transfer(address to, uint64_t amount){
   chain_get_caller(from);
   int success = change_balance(from, amount, -1);
   if (success != -1) {
-    return change_balance(to, amount, 1);
+    success = change_balance(to, amount, 1);
+  }
+  if (success != -1) {
+    Transfer(from, to, amount);
+    return success;
   }
   return -1;
 }
