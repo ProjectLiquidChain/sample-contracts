@@ -75,15 +75,14 @@ int is_pausing() {
   return ret;
 }
 
-uint64_t get_balance(address address)
-{
+uint64_t get_balance(address address) {
   void *data = sdk_storage_get(address, ADDRESS_SIZE);
   uint64_t ret = *(uint64_t *)data;
   free(data);
   return ret;
 }
 
-int change_balance(address to, uint64_t amount, int sign){
+int change_balance(address to, uint64_t amount, int sign) {
   uint64_t to_balance = get_balance(to);
   if (sign < 0) {
     if (to_balance < amount) {
@@ -128,7 +127,7 @@ int mint(uint64_t amount) {
   return success;
 }
 
-int transfer(address to, uint64_t amount, uint64_t memo){
+int transfer_with_memo(address to, uint64_t amount, uint64_t memo) {
   if (is_pausing()) {
     return -1;
   }
@@ -143,4 +142,8 @@ int transfer(address to, uint64_t amount, uint64_t memo){
     return success;
   }
   return -1;
+}
+
+int transfer(address to, uint64_t amount) {
+  return transfer_with_memo(to, amount, 0);
 }
