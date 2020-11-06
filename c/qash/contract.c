@@ -104,7 +104,7 @@ uint64_t get_balance(address_t address) {
   return balance;
 }
 
-uint8_t is_pausing() {
+uint8_t is_paused() {
   uint8_t flag = 0;
   if (chain_storage_size_get(PAUSE_KEY, sizeof(PAUSE_KEY))) {
     chain_storage_get(PAUSE_KEY, sizeof(PAUSE_KEY), &flag);
@@ -113,21 +113,21 @@ uint8_t is_pausing() {
 }
 
 void pause() {
-  assert(!is_pausing());
+  assert(!is_paused());
   uint8_t flag = 1;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Pause();
 }
 
 void unpause() {
-  assert(is_pausing());
+  assert(is_paused());
   uint8_t flag = 0;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Unpause();
 }
 
 void _transfer(address_t from, address_t to, uint64_t value, uint64_t memo) {
-  assert(!is_pausing());
+  assert(!is_paused());
 
   // Get current balance
   uint64_t from_balance = get_balance(from);
