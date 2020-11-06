@@ -10,6 +10,7 @@
 #define PAUSE_KEY "PAUSE"
 #define TOTAL_SUPPLY_KEY "TOTAL_SUPPLY"
 #define SYMBOL "QASH"
+#define DECIMALS 6
 
 typedef uint8_t balance_key_t[BALANCES_KEY_SIZE];
 typedef uint8_t allowance_key_t[ALLOWANCES_KEY_SIZE];
@@ -192,7 +193,7 @@ void transfer_from(address_t from, address_t to, uint64_t value, uint64_t memo) 
 }
 
 uint8_t get_decimals() {
-  return 6;
+  return DECIMALS;
 }
 
 uint64_t get_symbol() {
