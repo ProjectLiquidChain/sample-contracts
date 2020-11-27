@@ -1,7 +1,7 @@
 #include "chain.h"
 #include <string.h>
 
-// Storage key, prefix and type
+// Storage keys, prefixes and types
 #define OWNER_KEY "OWNER"
 #define BALANCES_PREFIX "BALANCES"
 #define BALANCES_KEY_SIZE (sizeof(BALANCES_PREFIX) + ADDRESS_SIZE)
@@ -15,7 +15,7 @@
 typedef uint8_t balance_key_t[BALANCES_KEY_SIZE];
 typedef uint8_t allowance_key_t[ALLOWANCES_KEY_SIZE];
 
-// Event
+// Events
 Event Owner(address_t owner);
 Event ChangeOwner(address_t old_owner, address_t new_owner);
 Event Mint(address_t address, uint64_t value);
@@ -24,30 +24,43 @@ Event Approval(address_t owner, address_t spender, uint64_t value);
 Event Pause();
 Event Unpause();
 
-// Exit to revert on fail
+/**
+ * Simple assertion, exit on false
+ */
 void assert(int expression) {
   if (!expression) {
     exit(1);
   }
 }
 
-// Safe uint64_t operations
+/**
+ * Math safe uint64 add, exit on overflow
+ */
 uint64_t add(uint64_t a, uint64_t b) {
   uint64_t c = a + b;
   assert(c >= a);
   return c;
 }
 
+/**
+ * Math safe uint64 add, exit on underflow
+ */
 uint64_t sub(uint64_t a, uint64_t b) {
   assert(b <= a);
   return a - b;
 }
 
+/**
+ * Build key of balance for storage
+ */
 void _build_balance_key(balance_key_t key, address_t address) {
   memcpy(key, BALANCES_PREFIX, sizeof(BALANCES_PREFIX));
   memcpy(key + sizeof(BALANCES_PREFIX), address, ADDRESS_SIZE);
 }
 
+/**
+ * Build key of allowance for storage
+ */
 void _build_allowance_key(allowance_key_t key, address_t owner, address_t spender) {
   memcpy(key, ALLOWANCES_PREFIX, sizeof(ALLOWANCES_PREFIX));
   memcpy(key + sizeof(ALLOWANCES_PREFIX), owner, ADDRESS_SIZE);
@@ -55,6 +68,13 @@ void _build_allowance_key(allowance_key_t key, address_t owner, address_t spende
 }
 
 // Functions
+
+/**
+ * Init function
+ * - Mint a fixed supply of tokens
+ * - Set owner to caller
+ * - Lock init
+ */
 void init(uint64_t value) {
   // Not init yet
   assert(chain_storage_size_get(OWNER_KEY, sizeof(OWNER_KEY)) == 0);
@@ -72,12 +92,18 @@ void init(uint64_t value) {
   Mint(owner, value);
 }
 
+/**
+ * Return owner address via Owner event
+ */
 void get_owner() {
   address_t owner;
   chain_storage_get(OWNER_KEY, sizeof(OWNER_KEY), owner);
   Owner(owner);
 }
 
+/**
+ * Check if caller is owner
+ */
 uint8_t is_owner() {
   address_t caller;
   address_t owner;
@@ -86,6 +112,10 @@ uint8_t is_owner() {
   return memcmp(owner, caller, ADDRESS_SIZE) == 0;
 }
 
+/**
+ * Change the owner of contract
+ * Require caller is owner
+ */
 void change_owner(address_t new_owner) {
   assert(is_owner());
   address_t owner;
@@ -94,6 +124,9 @@ void change_owner(address_t new_owner) {
   ChangeOwner(owner, new_owner);
 }
 
+/**
+ * Return the balance of an address. If address does not exist, return 0
+ */
 uint64_t get_balance(address_t address) {
   balance_key_t key;
   _build_balance_key(key, address);
@@ -104,6 +137,9 @@ uint64_t get_balance(address_t address) {
   return balance;
 }
 
+/**
+ * Check if transfer is paused
+ */
 uint8_t is_paused() {
   uint8_t flag = 0;
   if (chain_storage_size_get(PAUSE_KEY, sizeof(PAUSE_KEY))) {
@@ -112,20 +148,31 @@ uint8_t is_paused() {
   return flag;
 }
 
+/**
+ * Pause the token transfer
+ * Require caller is owner
+ */
 void pause() {
-  assert(!is_paused());
+  assert(is_owner() && !is_paused());
   uint8_t flag = 1;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Pause();
 }
 
+/**
+ * Resume the token transfer
+ * Require caller is owner
+ */
 void unpause() {
-  assert(is_paused());
+  assert(is_owner() && is_paused());
   uint8_t flag = 0;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Unpause();
 }
 
+/**
+ * Internal transfer function
+ */
 void _transfer(address_t from, address_t to, uint64_t value, uint64_t memo) {
   assert(!is_paused());
 
@@ -150,6 +197,9 @@ void _transfer(address_t from, address_t to, uint64_t value, uint64_t memo) {
   Transfer(from, to, value, memo);
 }
 
+/**
+ * Transfer tokens from caller to another address with a memo
+ */
 void transfer(address_t to, uint64_t value, uint64_t memo) { 
   address_t from;
   chain_get_caller(from);
@@ -157,6 +207,9 @@ void transfer(address_t to, uint64_t value, uint64_t memo) {
   _transfer(from, to, value, memo);
 }
 
+/**
+ * Return current allowance that an token holder allows spender to transfer
+ */
 uint64_t get_allowance(address_t owner, address_t spender) {
   allowance_key_t key;
   _build_allowance_key(key, owner, spender);
@@ -167,6 +220,9 @@ uint64_t get_allowance(address_t owner, address_t spender) {
   return value;
 }
 
+/**
+ * Approve a spender to transfer tokens on behalf of a token holder
+ */
 void approve(address_t spender, uint64_t value) {
   address_t owner;
   chain_get_caller(owner);
@@ -176,6 +232,10 @@ void approve(address_t spender, uint64_t value) {
   Approval(owner, spender, value);
 }
 
+/**
+ * Transfer token on behalf of token holder
+ * The amount must not greater than the allowance was set by `approve`
+ */
 void transfer_from(address_t from, address_t to, uint64_t value, uint64_t memo) {
   address_t spender;
   chain_get_caller(spender);
@@ -192,14 +252,23 @@ void transfer_from(address_t from, address_t to, uint64_t value, uint64_t memo) 
   _transfer(from, to, value, memo);
 }
 
+/**
+ * Return the decimals of token
+ */
 uint8_t get_decimals() {
   return DECIMALS;
 }
 
+/**
+ * Return symbol, encoding in uint64, max 8 character 
+ */
 uint64_t get_symbol() {
   return *((uint64_t *)SYMBOL);
 }
 
+/**
+ * Return total supply of token
+ */
 uint64_t get_total_supply() {
   uint64_t total_supply;
   chain_storage_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply);
