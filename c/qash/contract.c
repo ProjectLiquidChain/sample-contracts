@@ -11,6 +11,8 @@
 #define TOTAL_SUPPLY_KEY "TOTAL_SUPPLY"
 #define SYMBOL "QASH"
 #define DECIMALS 6
+// For mint/burn event
+const address_t ZERO_ADDRESS = {88, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 173, 17};
 
 typedef uint8_t balance_key_t[BALANCES_KEY_SIZE];
 typedef uint8_t allowance_key_t[ALLOWANCES_KEY_SIZE];
@@ -19,15 +21,17 @@ typedef uint8_t allowance_key_t[ALLOWANCES_KEY_SIZE];
 Event Owner(address_t owner);
 Event ChangeOwner(address_t old_owner, address_t new_owner);
 Event Mint(address_t address, uint64_t value);
+Event Burn(address_t address, uint64_t value);
 Event Transfer(address_t from, address_t to, uint64_t value, uint64_t memo);
 Event Approval(address_t owner, address_t spender, uint64_t value);
 Event Pause();
 Event Unpause();
 
 /**
- * Simple assertion, exit on false
+ * Simple _assertion, exit on false
+ * Internal function
  */
-void assert(int expression) {
+void _assert(int expression) {
   if (!expression) {
     exit(1);
   }
@@ -35,23 +39,26 @@ void assert(int expression) {
 
 /**
  * Math safe uint64 add, exit on overflow
+ * Internal function
  */
-uint64_t add(uint64_t a, uint64_t b) {
+uint64_t _add(uint64_t a, uint64_t b) {
   uint64_t c = a + b;
-  assert(c >= a);
+  _assert(c >= a);
   return c;
 }
 
 /**
  * Math safe uint64 add, exit on underflow
+ * Internal function
  */
-uint64_t sub(uint64_t a, uint64_t b) {
-  assert(b <= a);
+uint64_t _sub(uint64_t a, uint64_t b) {
+  _assert(b <= a);
   return a - b;
 }
 
 /**
  * Build key of balance for storage
+ * Internal function
  */
 void _build_balance_key(balance_key_t key, address_t address) {
   memcpy(key, BALANCES_PREFIX, sizeof(BALANCES_PREFIX));
@@ -60,6 +67,7 @@ void _build_balance_key(balance_key_t key, address_t address) {
 
 /**
  * Build key of allowance for storage
+ * Internal function
  */
 void _build_allowance_key(allowance_key_t key, address_t owner, address_t spender) {
   memcpy(key, ALLOWANCES_PREFIX, sizeof(ALLOWANCES_PREFIX));
@@ -71,25 +79,18 @@ void _build_allowance_key(allowance_key_t key, address_t owner, address_t spende
 
 /**
  * Init function
- * - Mint a fixed supply of tokens
  * - Set owner to caller
  * - Lock init
  */
-void init(uint64_t value) {
+void init() {
   // Not init yet
-  assert(chain_storage_size_get(OWNER_KEY, sizeof(OWNER_KEY)) == 0);
+  _assert(!chain_storage_size_get(OWNER_KEY, sizeof(OWNER_KEY)));
   address_t owner;
   chain_get_caller(owner);
   // Init
   chain_storage_set(OWNER_KEY, sizeof(OWNER_KEY), owner, ADDRESS_SIZE);
   // Emit event set owner
   Owner(owner);
-  // Mint supply
-  balance_key_t key;
-  _build_balance_key(key, owner);
-  chain_storage_set(key, BALANCES_KEY_SIZE, &value, sizeof(value));
-  chain_storage_set(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &value, sizeof(value));
-  Mint(owner, value);
 }
 
 /**
@@ -117,7 +118,7 @@ uint8_t is_owner() {
  * Require caller is owner
  */
 void change_owner(address_t new_owner) {
-  assert(is_owner());
+  _assert(is_owner());
   address_t owner;
   chain_storage_get(OWNER_KEY, sizeof(OWNER_KEY), owner);
   chain_storage_set(OWNER_KEY, sizeof(OWNER_KEY), new_owner, ADDRESS_SIZE);
@@ -153,7 +154,7 @@ uint8_t is_paused() {
  * Require caller is owner
  */
 void pause() {
-  assert(is_owner() && !is_paused());
+  _assert(is_owner() && !is_paused());
   uint8_t flag = 1;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Pause();
@@ -164,7 +165,7 @@ void pause() {
  * Require caller is owner
  */
 void unpause() {
-  assert(is_owner() && is_paused());
+  _assert(is_owner() && is_paused());
   uint8_t flag = 0;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
   Unpause();
@@ -174,18 +175,15 @@ void unpause() {
  * Internal transfer function
  */
 void _transfer(address_t from, address_t to, uint64_t value, uint64_t memo) {
-  assert(!is_paused());
+  _assert(!is_paused() && memcmp(to, ZERO_ADDRESS, ADDRESS_SIZE) != 0);
 
   // Get current balance
   uint64_t from_balance = get_balance(from);
   uint64_t to_balance = get_balance(to);
-  
-  // From has enough balance
-  assert(from_balance >= value);
 
   // Safe math will exit if not enough balance
-  from_balance = sub(from_balance, value);
-  to_balance = add(to_balance, value);
+  from_balance = _sub(from_balance, value);
+  to_balance = _add(to_balance, value);
 
   // Update storage
   balance_key_t from_balance_key, to_balance_key;
@@ -242,7 +240,7 @@ void transfer_from(address_t from, address_t to, uint64_t value, uint64_t memo) 
 
   // Check allowance
   uint64_t allowance = get_allowance(from, spender);
-  allowance = sub(allowance, value);
+  allowance = _sub(allowance, value);
 
   // Update storage
   allowance_key_t key;
@@ -270,7 +268,51 @@ uint64_t get_symbol() {
  * Return total supply of token
  */
 uint64_t get_total_supply() {
-  uint64_t total_supply;
-  chain_storage_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply);
+  uint64_t total_supply = 0;
+  if (chain_storage_size_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY))) {
+    chain_storage_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply);
+  }
   return total_supply;
+}
+
+/**
+ * Mint new tokens
+ * Require caller is owner
+ */
+void mint(address_t to, uint64_t value) {
+  _assert(is_owner() && !is_paused() && memcmp(to, ZERO_ADDRESS, ADDRESS_SIZE) != 0);
+  uint64_t total_supply = get_total_supply();
+  uint64_t to_balance = get_balance(to);
+  total_supply = _add(total_supply, value);
+  to_balance = _add(to_balance, value);
+  // Update total supply
+  chain_storage_set(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply, sizeof(total_supply));
+  // Update balance
+  balance_key_t key;
+  _build_balance_key(key, to);
+  chain_storage_set(key, BALANCES_KEY_SIZE, &to_balance, sizeof(to_balance));
+  Mint(to, value);
+  Transfer(ZERO_ADDRESS, to, value, 0);
+}
+
+/**
+ * Burn tokens
+ */
+void burn(uint64_t value)
+{
+  _assert(!is_paused());
+  address_t caller;
+  chain_get_caller(caller);
+  uint64_t total_supply = get_total_supply();
+  uint64_t caller_balance = get_balance(caller);
+  total_supply = _sub(total_supply, value);
+  caller_balance = _sub(caller_balance, value);
+  // Update total supply
+  chain_storage_set(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply, sizeof(total_supply));
+  // Update balance
+  balance_key_t key;
+  _build_balance_key(key, caller);
+  chain_storage_set(key, BALANCES_KEY_SIZE, &caller_balance, sizeof(caller_balance));
+  Burn(caller, value);
+  Transfer(caller, ZERO_ADDRESS, value, 0);
 }
