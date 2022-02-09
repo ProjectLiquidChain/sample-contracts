@@ -3,6 +3,7 @@
 
 // Storage keys, prefixes and types
 #define OWNER_KEY "OWNER"
+#define NEW_OWNER_KEY "NEW_OWNER"
 #define BALANCES_PREFIX "BALANCES"
 #define BALANCES_KEY_SIZE (sizeof(BALANCES_PREFIX) + ADDRESS_SIZE)
 #define ALLOWANCES_PREFIX "ALLOWANCES"
@@ -18,14 +19,14 @@ typedef uint8_t balance_key_t[BALANCES_KEY_SIZE];
 typedef uint8_t allowance_key_t[ALLOWANCES_KEY_SIZE];
 
 // Events
-Event Owner(address_t owner);
-Event ChangeOwner(address_t old_owner, address_t new_owner);
-Event Mint(address_t address, uint64_t value);
-Event Burn(address_t address, uint64_t value);
-Event Transfer(address_t from, address_t to, uint64_t value, uint64_t memo);
-Event Approval(address_t owner, address_t spender, uint64_t value);
-Event Pause();
-Event Unpause();
+extern Event Owner(address_t owner);
+extern Event ChangeOwner(address_t old_owner, address_t new_owner);
+extern Event Mint(address_t address, uint64_t value);
+extern Event Burn(address_t address, uint64_t value);
+extern Event Transfer(address_t from, address_t to, uint64_t value, uint64_t memo);
+extern Event Approval(address_t owner, address_t spender, uint64_t value);
+extern Event Pause();
+extern Event Unpause();
 
 /**
  * Simple _assertion, exit on false
@@ -82,7 +83,7 @@ void _build_allowance_key(allowance_key_t key, address_t owner, address_t spende
  * - Set owner to caller
  * - Lock init
  */
-void init() {
+void init(void) {
   // Not init yet
   _assert(!chain_storage_size_get(OWNER_KEY, sizeof(OWNER_KEY)));
   address_t owner;
@@ -96,7 +97,7 @@ void init() {
 /**
  * Return owner address via Owner event
  */
-void get_owner() {
+void get_owner(void) {
   address_t owner;
   chain_storage_get(OWNER_KEY, sizeof(OWNER_KEY), owner);
   Owner(owner);
@@ -105,7 +106,7 @@ void get_owner() {
 /**
  * Check if caller is owner
  */
-uint8_t is_owner() {
+uint8_t is_owner(void) {
   address_t caller;
   address_t owner;
   chain_get_caller(caller);
@@ -114,13 +115,40 @@ uint8_t is_owner() {
 }
 
 /**
- * Change the owner of contract
- * Require caller is owner
+ * Propose the candidate owner of the contract. The new owner must claim its ownership
+ * Require caller is current owner
  */
-void change_owner(address_t new_owner) {
+void propose_new_owner(address_t new_owner) {
   _assert(is_owner());
   address_t owner;
   chain_storage_get(OWNER_KEY, sizeof(OWNER_KEY), owner);
+  chain_storage_set(NEW_OWNER_KEY, sizeof(NEW_OWNER_KEY), new_owner, ADDRESS_SIZE);
+}
+
+/**
+ * Check if caller is candidate owner
+ */
+uint8_t is_new_owner(void) {
+  address_t caller;
+  address_t new_owner;
+  chain_get_caller(caller);
+  if (chain_storage_size_get(NEW_OWNER_KEY, sizeof(NEW_OWNER_KEY))) {
+    chain_storage_get(NEW_OWNER_KEY, sizeof(NEW_OWNER_KEY), new_owner);
+    return memcmp(new_owner, caller, ADDRESS_SIZE) == 0;
+  }
+  return 0;
+}
+
+/**
+ * Claim ownership
+ * Require caller is current owner
+ */
+void claim_ownership(void) {
+  _assert(is_new_owner());
+  address_t owner, new_owner;
+  chain_storage_get(OWNER_KEY, sizeof(OWNER_KEY), owner);
+  chain_storage_get(NEW_OWNER_KEY, sizeof(NEW_OWNER_KEY), new_owner);
+  chain_storage_set(NEW_OWNER_KEY, sizeof(NEW_OWNER_KEY), NULL, 0);
   chain_storage_set(OWNER_KEY, sizeof(OWNER_KEY), new_owner, ADDRESS_SIZE);
   ChangeOwner(owner, new_owner);
 }
@@ -141,7 +169,7 @@ uint64_t get_balance(address_t address) {
 /**
  * Check if transfer is paused
  */
-uint8_t is_paused() {
+uint8_t is_paused(void) {
   uint8_t flag = 0;
   if (chain_storage_size_get(PAUSE_KEY, sizeof(PAUSE_KEY))) {
     chain_storage_get(PAUSE_KEY, sizeof(PAUSE_KEY), &flag);
@@ -153,7 +181,7 @@ uint8_t is_paused() {
  * Pause the token transfer
  * Require caller is owner
  */
-void pause() {
+void pause(void) {
   _assert(is_owner() && !is_paused());
   uint8_t flag = 1;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
@@ -164,7 +192,7 @@ void pause() {
  * Resume the token transfer
  * Require caller is owner
  */
-void unpause() {
+void unpause(void) {
   _assert(is_owner() && is_paused());
   uint8_t flag = 0;
   chain_storage_set(PAUSE_KEY, sizeof(PAUSE_KEY), &flag, sizeof(flag));
@@ -253,21 +281,21 @@ void transfer_from(address_t from, address_t to, uint64_t value, uint64_t memo) 
 /**
  * Return the decimals of token
  */
-uint8_t get_decimals() {
+uint8_t get_decimals(void) {
   return DECIMALS;
 }
 
 /**
  * Return symbol, encoding in uint64, max 8 character 
  */
-uint64_t get_symbol() {
+uint64_t get_symbol(void) {
   return *((uint64_t *)SYMBOL);
 }
 
 /**
  * Return total supply of token
  */
-uint64_t get_total_supply() {
+uint64_t get_total_supply(void) {
   uint64_t total_supply = 0;
   if (chain_storage_size_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY))) {
     chain_storage_get(TOTAL_SUPPLY_KEY, sizeof(TOTAL_SUPPLY_KEY), &total_supply);
